@@ -12,9 +12,17 @@ const path = require('path');
 const app = express();
 const port = Number.parseInt(process.env.PORT || '4000', 10);
 const storageFile = path.join(__dirname, 'received.json');
+const publicDir = path.join(__dirname, '..', 'public');
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+if (fs.existsSync(publicDir)) {
+    app.use(express.static(publicDir));
+    app.get(['/', '/pos'], (req, res) => {
+        res.sendFile(path.join(publicDir, 'index.html'));
+    });
+}
 
 function parsePayMessage(message) {
     const parts = message.split('-');
