@@ -12,6 +12,23 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Validate deployment secrets
+        env:
+          APP_NAME: ${{ secrets.APP_NAME }}
+          HOST: ${{ secrets.HOST }}
+          USERNAME: ${{ secrets.USERNAME }}
+          PASSWORD: ${{ secrets.PASSWORD }}
+          PORT: ${{ secrets.PORT }}
+          AT_API_KEY: ${{ secrets.AT_API_KEY }}
+        run: |
+          set -e
+          for variable in APP_NAME HOST USERNAME PASSWORD PORT AT_API_KEY; do
+            if [ -z "${!variable}" ]; then
+              echo "::error::GitHub Actions secret $variable is not configured"
+              exit 1
+            fi
+          done
+
       - name: Copy files via SCP
         uses: appleboy/scp-action@v1
         with:
@@ -29,10 +46,10 @@ jobs:
           username: ${{ secrets.USERNAME }}
           password: ${{ secrets.PASSWORD }}
           port: ${{ secrets.PORT }}
+          envs: APP_NAME,AT_USERNAME,AT_API_KEY,AT_SHORTCODE,SYSTEM_NUM,APP_PORT
           script: |
             set -e
 
-            APP_NAME="${{ secrets.APP_NAME }}"
             APP_DIR="/root/nodeapplications/$APP_NAME"
 
             echo "Deploying $APP_NAME to $APP_DIR"
@@ -58,10 +75,14 @@ jobs:
               exit 1
             fi
 
-            if [ ! -f .env ]; then
-              echo "No .env file found in $APP_DIR"
-              exit 1
-            fi
+            umask 077
+            {
+              printf 'AT_USERNAME=%s\n' "${AT_USERNAME:-sandbox}"
+              printf 'AT_API_KEY=%s\n' "$AT_API_KEY"
+              printf 'AT_SHORTCODE=%s\n' "${AT_SHORTCODE:-66578}"
+              printf 'SYSTEM_NUM=%s\n' "$SYSTEM_NUM"
+              printf 'PORT=%s\n' "${APP_PORT:-4000}"
+            } > .env
 
             npm ci --omit=dev
 
@@ -91,3 +112,10 @@ jobs:
             pm2 startup systemd -u "$USER" --hp "$HOME" || true
 
             echo "Deployment complete for $APP_NAME"
+        env:
+          APP_NAME: ${{ secrets.APP_NAME }}
+          AT_USERNAME: ${{ secrets.AT_USERNAME }}
+          AT_API_KEY: ${{ secrets.AT_API_KEY }}
+          AT_SHORTCODE: ${{ secrets.AT_SHORTCODE }}
+          SYSTEM_NUM: ${{ secrets.SYSTEM_NUM }}
+          APP_PORT: ${{ secrets.APP_PORT }}
