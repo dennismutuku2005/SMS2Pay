@@ -348,11 +348,13 @@ app.post(['/', '/webhook'], async (req, res, next) => {
             return res.status(400).json({ ok: false, error: 'Empty request body' });
         }
 
-        const text = String(data.text ?? data.message ?? data.body ?? '').trim();
+        const rawText = String(data.text ?? data.message ?? data.body ?? '');
+        const text = rawText.replace(/\s+/g, '');
         const parsed = parsePayMessage(text);
         log('Inbound payload parsed', {
             from: data.from || null,
             to: data.to || null,
+            rawText,
             text,
             valid: Boolean(parsed),
         });
