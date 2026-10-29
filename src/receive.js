@@ -388,11 +388,14 @@ app.post(['/', '/webhook'], async (req, res, next) => {
                 reply.sms_sent = await sendSms(replyText, data);
             }
         } else {
+            const errorText = 'SMS2Pay error: invalid PAY1 format';
             reply = {
                 status: 'FL',
                 reason: 'invalid_payload',
                 text: null,
             };
+            reply.sms_sent = await sendSms(errorText, data);
+            reply.error_text = errorText;
         }
 
         const records = readExistingRecords();
