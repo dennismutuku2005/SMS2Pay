@@ -201,7 +201,7 @@ Response status codes:
 |---:|---|
 | `200` | Valid `PAY1` message |
 | `400` | Empty body or invalid JSON |
-| `422` | Body received, but the payment message is invalid |
+| `200` | Body received and handled, including an invalid payment message |
 | `500` | Unexpected server or storage error |
 
 ## Storage

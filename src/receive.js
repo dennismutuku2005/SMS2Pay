@@ -457,7 +457,8 @@ app.post(['/', '/webhook'], async (req, res, next) => {
             duplicate: reply.duplicate || false,
         });
 
-        return res.status(parsed ? 200 : 422).json({
+        // A handled SMS must return 200 to prevent Africa's Talking from retrying it.
+        return res.status(200).json({
             ok: Boolean(parsed),
             received: data,
             parsed,
