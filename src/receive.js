@@ -32,6 +32,17 @@ function log(message, details) {
     console.log(`[${new Date().toISOString()}] ${message}${suffix}`);
 }
 
+function normalizeMpesaPhone(phone) {
+    const digits = String(phone).replace(/\D/g, '');
+    if (digits.startsWith('0')) {
+        return `254${digits.slice(1)}`;
+    }
+    if (digits.startsWith('254')) {
+        return digits;
+    }
+    return digits;
+}
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -166,12 +177,21 @@ async function sendSms(replyText, requestData) {
 }
 
 async function postMpesa(endpoint, body) {
+    const requestUrl = `${mpesaBaseUrl}/${endpoint}`;
+    const startedAt = Date.now();
     let response;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), mpesaRequestTimeoutMs);
     try {
-        log('M-Pesa request started', { endpoint, checkoutRequestId: body.CheckoutRequestID || null });
-        response = await fetch(`${mpesaBaseUrl}/${endpoint}`, {
+        log('M-Pesa request started', {
+            endpoint,
+            url: requestUrl,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            payload: body,
+            checkoutRequestId: body.CheckoutRequestID || null,
+        });
+        response = await fetch(requestUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
@@ -181,13 +201,23 @@ async function postMpesa(endpoint, body) {
         const message = error.name === 'AbortError'
             ? `M-Pesa request timed out after ${mpesaRequestTimeoutMs / 1000} seconds`
             : error.message;
-        log('M-Pesa request failed', { endpoint, error: message });
+        log('M-Pesa request failed', {
+            endpoint,
+            error: message,
+            durationMs: Date.now() - startedAt,
+        });
         return { status: 'error', message };
     } finally {
         clearTimeout(timeout);
     }
 
     const responseText = await response.text();
+    log('M-Pesa raw response received', {
+        endpoint,
+        httpStatus: response.status,
+        durationMs: Date.now() - startedAt,
+        body: responseText,
+    });
     try {
         const result = JSON.parse(responseText);
         log('M-Pesa response received', {
@@ -218,15 +248,17 @@ function wait(milliseconds) {
 }
 
 async function initiateMpesaPayment(parsed) {
+    const phone = normalizeMpesaPhone(parsed.payer);
     log('M-Pesa payment initiation', {
         payer: parsed.payer,
+        normalizedPhone: phone,
         amount: parsed.amount,
         partyB: mpesaPartyB,
         paymentType: 'till',
     });
     const result = await postMpesa('stkpush.php', {
         name: process.env.MPESA_CUSTOMER_NAME || 'SMS2Pay Customer',
-        phone: parsed.payer,
+        phone,
         amount: Number.parseInt(parsed.amount, 10),
         paymentType: 'till',
         partyB: mpesaPartyB,
@@ -243,7 +275,11 @@ async function initiateMpesaPayment(parsed) {
     }
 
     const checkoutRequestId = result.data.CheckoutRequestID;
-    log('M-Pesa payment accepted; background polling started', { checkoutRequestId });
+    log('M-Pesa payment accepted; background polling started', {
+        checkoutRequestId,
+        merchantRequestId: result.data.MerchantRequestID || null,
+        providerData: result.data,
+    });
     return {
         status: 'PD',
         checkoutRequestId,
@@ -325,8 +361,19 @@ app.post('/api/pos/send', (req, res) => {
 
 async function completeMpesaPayment(parsed, requestData, initialPayment) {
     try {
+        log('Background payment tracking started', {
+            uuid: parsed.uuid,
+            checkoutRequestId: initialPayment.checkoutRequestId,
+            recipient: requestData.from || null,
+        });
         const payment = await pollMpesaPayment(initialPayment.checkoutRequestId);
         const replyText = `RES1-${parsed.uuid}-${payment.status}-${parsed.amount}`;
+        log('Sending final payment SMS', {
+            uuid: parsed.uuid,
+            checkoutRequestId: payment.checkoutRequestId,
+            recipient: requestData.from || null,
+            message: replyText,
+        });
         const smsSent = await sendSms(replyText, requestData);
         log('Background payment completed', {
             uuid: parsed.uuid,
