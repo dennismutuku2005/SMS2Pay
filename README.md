@@ -23,12 +23,11 @@ Device                    Africa's Talking              SMS2Pay backend
 
 The current backend acknowledges valid `PAY1` messages and returns an `OK`
 reply after requesting an M-Pesa STK Push. For Till payments, the configured
-customer phone receives the M-Pesa prompt. The webhook returns immediately
-after the STK Push is accepted, then checks the transaction status in the
-background every second for up to one minute. The final `OK`, `FL`, or `PD`
-result is sent back by SMS. An immediate `PD` acknowledgment is sent when the
-STK Push is accepted, followed by the final result. If the provider remains
-pending after 60 checks, the backend sends a `PD` (pending timeout) result.
+customer phone receives the M-Pesa prompt. The webhook acknowledges receipt
+without sending a success or pending SMS, then checks the transaction status
+in the background every second for up to one minute. Only the final `OK`, `FL`,
+or `PD` result is sent back by SMS. If the provider remains pending after 60
+checks, the backend sends a `PD` (pending timeout) result.
 
 ## Current features
 

@@ -411,7 +411,7 @@ app.post(['/', '/webhook'], async (req, res, next) => {
             const existing = readExistingRecords();
             const duplicate = existing.some((record) => record?.parsed?.uuid === parsed.uuid);
             const payment = duplicate
-                ? { status: 'PD', reason: 'duplicate_payment' }
+                ? { status: 'FL', reason: 'duplicate_payment' }
                 : await initiateMpesaPayment(parsed);
             const replyText = `RES1-${parsed.uuid}-${payment.status}-${parsed.amount}`;
 
@@ -426,9 +426,11 @@ app.post(['/', '/webhook'], async (req, res, next) => {
 
             if (payment.checkoutRequestId && payment.reason === 'mpesa_payment_pending') {
                 void completeMpesaPayment(parsed, data, payment);
-                reply.sms_sent = await sendSms(replyText, data);
-                reply.sms_sent.pending = true;
-                reply.sms_sent.message = 'M-Pesa payment is being checked in the background';
+                reply.sms_sent = {
+                    ok: false,
+                    pending: true,
+                    message: 'Final SMS will be sent after M-Pesa completes',
+                };
             } else {
                 reply.sms_sent = await sendSms(replyText, data);
             }
