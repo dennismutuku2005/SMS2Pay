@@ -426,11 +426,9 @@ app.post(['/', '/webhook'], async (req, res, next) => {
 
             if (payment.checkoutRequestId && payment.reason === 'mpesa_payment_pending') {
                 void completeMpesaPayment(parsed, data, payment);
-                reply.sms_sent = {
-                    ok: false,
-                    pending: true,
-                    message: 'M-Pesa payment is being checked in the background',
-                };
+                reply.sms_sent = await sendSms(replyText, data);
+                reply.sms_sent.pending = true;
+                reply.sms_sent.message = 'M-Pesa payment is being checked in the background';
             } else {
                 reply.sms_sent = await sendSms(replyText, data);
             }
