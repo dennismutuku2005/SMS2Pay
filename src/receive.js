@@ -63,10 +63,10 @@ function parsePayMessage(message) {
     }
 
     const [, payer, amount, uuid] = parts;
-    if (!/^\d+$/.test(payer) || !/^\d+$/.test(amount)) {
+    if (!/^(?:0[17]\d{8}|254[17]\d{8})$/.test(payer) || !/^\d+$/.test(amount)) {
         return null;
     }
-    if (payer.length > 12 || amount.length > 8) {
+    if (amount.length > 8 || Number.parseInt(amount, 10) < 1) {
         return null;
     }
     if (!/^[\da-f]{24}$/i.test(uuid)) {
@@ -196,6 +196,13 @@ async function postMpesa(endpoint, body) {
             status: result.status || null,
             checkoutRequestId: result.data?.CheckoutRequestID || body.CheckoutRequestID || null,
         });
+        if (!response.ok) {
+            return {
+                status: 'error',
+                message: result.message || `M-Pesa returned HTTP ${response.status}`,
+                data: result.data,
+            };
+        }
         return result;
     } catch {
         log('M-Pesa returned invalid JSON', { endpoint, httpStatus: response.status });

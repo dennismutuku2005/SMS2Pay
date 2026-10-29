@@ -119,8 +119,8 @@ Validation rules:
 | Field | Rules |
 |---|---|
 | Type | Must be `PAY1` |
-| Payer | Digits only, maximum 12 characters |
-| Amount | Digits only, maximum 8 characters |
+| Payer | `07XXXXXXXX`, `01XXXXXXXX`, or `254XXXXXXXX` |
+| Amount | Positive integer, maximum 8 digits |
 | UUID | Exactly 24 hexadecimal characters |
 
 ### `RES1` — backend to device
