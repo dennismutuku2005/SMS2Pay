@@ -9,6 +9,15 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 
+const envPath = path.join(__dirname, '..', '.env');
+if (fs.existsSync(envPath) && typeof process.loadEnvFile === 'function') {
+    try {
+        process.loadEnvFile(envPath);
+    } catch {
+        // Continue if already loaded or not readable
+    }
+}
+
 const app = express();
 const port = Number.parseInt(process.env.PORT || '4000', 10);
 const storageFile = path.join(__dirname, 'received.json');
