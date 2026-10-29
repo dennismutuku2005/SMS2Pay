@@ -227,7 +227,17 @@ async function initiateMpesaPayment(parsed) {
     }
 
     const checkoutRequestId = result.data.CheckoutRequestID;
-    log('M-Pesa payment accepted; polling every second for up to one minute', {
+    log('M-Pesa payment accepted; background polling started', { checkoutRequestId });
+    return {
+        status: 'PD',
+        checkoutRequestId,
+        reason: 'mpesa_payment_pending',
+        mpesa: result,
+    };
+}
+
+async function pollMpesaPayment(checkoutRequestId) {
+    log('M-Pesa polling started', {
         checkoutRequestId,
         pollAttempts: mpesaPollAttempts,
     });
@@ -297,6 +307,24 @@ app.post('/api/pos/send', (req, res) => {
     return res.json({ ok: true, message: 'Dispatched', text });
 });
 
+async function completeMpesaPayment(parsed, requestData, initialPayment) {
+    try {
+        const payment = await pollMpesaPayment(initialPayment.checkoutRequestId);
+        const replyText = `RES1-${parsed.uuid}-${payment.status}-${parsed.amount}`;
+        const smsSent = await sendSms(replyText, requestData);
+        log('Background payment completed', {
+            uuid: parsed.uuid,
+            status: payment.status,
+            smsSent: smsSent.ok,
+        });
+    } catch (error) {
+        log('Background payment processing failed', {
+            uuid: parsed.uuid,
+            error: error.message,
+        });
+    }
+}
+
 app.post(['/', '/webhook'], async (req, res, next) => {
     try {
         const data = req.body;
@@ -331,7 +359,16 @@ app.post(['/', '/webhook'], async (req, res, next) => {
                 payment,
             };
 
-            reply.sms_sent = await sendSms(replyText, data);
+            if (payment.checkoutRequestId && payment.reason === 'mpesa_payment_pending') {
+                void completeMpesaPayment(parsed, data, payment);
+                reply.sms_sent = {
+                    ok: false,
+                    pending: true,
+                    message: 'M-Pesa payment is being checked in the background',
+                };
+            } else {
+                reply.sms_sent = await sendSms(replyText, data);
+            }
         } else {
             reply = {
                 status: 'FL',
