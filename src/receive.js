@@ -1,3 +1,10 @@
+/*
+ * SMS2Pay webhook server.
+ *
+ * Receives PAY1 payment messages from Africa's Talking, validates and
+ * records each request, detects duplicate UUIDs, and sends RES1 replies
+ * when Africa's Talking credentials are configured.
+ */
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
