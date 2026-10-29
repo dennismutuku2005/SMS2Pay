@@ -22,7 +22,9 @@ Device                    Africa's Talking              SMS2Pay backend
 ```
 
 The current backend acknowledges valid `PAY1` messages and returns an `OK`
-reply. M-Pesa STK Push integration is not implemented yet.
+reply after requesting an M-Pesa STK Push. For Till payments, the configured
+customer phone receives the M-Pesa prompt. The backend checks the transaction
+status every second, up to `MPESA_POLL_ATTEMPTS` times.
 
 ## Current features
 
@@ -33,6 +35,8 @@ reply. M-Pesa STK Push integration is not implemented yet.
 - UUID-based duplicate detection
 - Persistent audit records in `src/received.json`
 - Optional Africa's Talking SMS replies
+- M-Pesa STK Push initiation for Till `3018584`
+- One-second M-Pesa status polling with `OK`, `FL`, or `PD` SMS results
 - Invalid JSON, empty bodies, and invalid payment messages reported explicitly
 
 ## Requirements
@@ -229,7 +233,8 @@ Before deploying this beyond a demo:
 
 - Add HMAC signing and verification to `PAY1` messages.
 - Replace JSON-file storage with a durable database.
-- Implement real M-Pesa STK Push and asynchronous payment status handling.
+- Move M-Pesa status polling to an asynchronous worker or callback for longer
+  transaction windows.
 - Add authentication or allow-listing for webhook requests where supported.
 - Keep secrets in a managed secret store rather than a local `.env` file.
 - Add rate limiting, structured logging, monitoring, and HTTPS.

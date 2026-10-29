@@ -12,6 +12,9 @@ const path = require('path');
 const app = express();
 const port = Number.parseInt(process.env.PORT || '4000', 10);
 const storageFile = path.join(__dirname, 'received.json');
+const mpesaBaseUrl = 'https://tuk.onenetwork-system.com/mpesa/v1';
+const mpesaPartyB = '3018584';
+const mpesaPollAttempts = 30;
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -116,6 +119,84 @@ async function sendSms(replyText, requestData) {
     return { ok: true, response: responseBody };
 }
 
+async function postMpesa(endpoint, body) {
+    let response;
+    try {
+        response = await fetch(`${mpesaBaseUrl}/${endpoint}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+    } catch (error) {
+        return { status: 'error', message: error.message };
+    }
+
+    const responseText = await response.text();
+    try {
+        return JSON.parse(responseText);
+    } catch {
+        return {
+            status: 'error',
+            message: `M-Pesa returned a non-JSON response (${response.status})`,
+        };
+    }
+}
+
+function wait(milliseconds) {
+    return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function initiateMpesaPayment(parsed) {
+    const result = await postMpesa('stkpush.php', {
+        name: process.env.MPESA_CUSTOMER_NAME || 'SMS2Pay Customer',
+        phone: parsed.payer,
+        amount: Number.parseInt(parsed.amount, 10),
+        paymentType: 'till',
+        partyB: mpesaPartyB,
+        accountReference: parsed.uuid,
+    });
+
+    if (result.status !== 'success' || !result.data?.CheckoutRequestID) {
+        return {
+            status: 'FL',
+            reason: result.message || 'mpesa_initiation_failed',
+            mpesa: result,
+        };
+    }
+
+    const checkoutRequestId = result.data.CheckoutRequestID;
+    for (let attempt = 1; attempt <= mpesaPollAttempts; attempt += 1) {
+        const statusResult = await postMpesa('statuscheck.php', {
+            CheckoutRequestID: checkoutRequestId,
+        });
+
+        if (statusResult.status === 'success') {
+            return {
+                status: 'OK',
+                checkoutRequestId,
+                mpesa: statusResult,
+            };
+        }
+        if (statusResult.status === 'failure' || statusResult.status === 'error') {
+            return {
+                status: 'FL',
+                checkoutRequestId,
+                reason: statusResult.message || statusResult.data?.ResultDesc || 'mpesa_payment_failed',
+                mpesa: statusResult,
+            };
+        }
+        if (attempt < mpesaPollAttempts) {
+            await wait(1000);
+        }
+    }
+
+    return {
+        status: 'PD',
+        checkoutRequestId,
+        reason: 'mpesa_payment_pending',
+    };
+}
+
 app.post(['/', '/webhook'], async (req, res, next) => {
     try {
         const data = req.body;
@@ -132,14 +213,18 @@ app.post(['/', '/webhook'], async (req, res, next) => {
         if (parsed) {
             const existing = readExistingRecords();
             const duplicate = existing.some((record) => record?.parsed?.uuid === parsed.uuid);
-            const replyText = `RES1-${parsed.uuid}-OK-${parsed.amount}`;
+            const payment = duplicate
+                ? { status: 'PD', reason: 'duplicate_payment' }
+                : await initiateMpesaPayment(parsed);
+            const replyText = `RES1-${parsed.uuid}-${payment.status}-${parsed.amount}`;
 
             reply = {
-                status: 'OK',
+                status: payment.status,
                 uuid: parsed.uuid,
                 amount: parsed.amount,
                 text: replyText,
                 duplicate,
+                payment,
             };
 
             reply.sms_sent = await sendSms(replyText, data);
