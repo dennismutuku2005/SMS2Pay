@@ -667,12 +667,13 @@
       }
 
       const status = String(payload.status || '').toUpperCase();
+      const amount = appState.inFlight?.amount || payload.record?.parsed?.amount || '0';
       if (status === 'OK' || status === 'SUCCESS') {
-        const amount = appState.inFlight?.amount || payload.record?.parsed?.amount || '0';
         receiveSms(`RES1-${uuid}-OK-${amount}`);
       } else if (status === 'FL' || status === 'FAIL' || status === 'FAILED') {
-        const reason = payload.record?.reply?.reason || 'FAILED';
-        receiveSms(`RES1-${uuid}-FAIL-${reason}`);
+        receiveSms(`RES1-${uuid}-FL-${amount}`);
+      } else if (status === 'PD') {
+        receiveSms(`RES1-${uuid}-PD-${amount}`);
       }
     } catch (error) {
       logTraffic(`Status poll error for ${uuid}: ${error.message}`, 'err');
@@ -738,7 +739,9 @@
   /**
    * Parses and handles an incoming SMS string:
    * RES1-<uuid>-OK-<amount>
-   * RES1-<uuid>-FAIL-<reason>
+   * RES1-<uuid>-FL-<amount>
+   * RES1-<uuid>-PD-<amount>
+   * RES1-<uuid>-FAIL-<reason> (legacy)
    */
   function receiveSms(rawSms) {
     if (!rawSms || typeof rawSms !== 'string') return;
@@ -752,8 +755,17 @@
     }
 
     const uuid = parts[1].toUpperCase();
-    const statusPart = parts[2].toUpperCase(); // 'OK' | 'FAIL'
-    const valuePart = parts[3]; // amount or reason
+    const statusPart = parts[2].toUpperCase(); // 'OK' | 'FL' | 'PD' | 'FAIL'
+    const valuePart = parts[3]; // amount (OK/FL/PD) or reason (FAIL)
+
+    const isSuccess = statusPart === 'OK';
+    const isPending = statusPart === 'PD';
+    const isFailure = statusPart === 'FL' || statusPart === 'FAIL';
+    const finalStatus = isSuccess ? 'Success' : (isPending ? 'Timeout' : 'Failed');
+    const failureReason = isSuccess
+      ? null
+      : (statusPart === 'FAIL' ? valuePart : (isPending ? 'PENDING_TIMEOUT' : 'FAILED'));
+    const amountValue = /^\d+$/.test(valuePart) ? valuePart : '0';
 
     // Look for matching record in history
     const history = loadHistory();
@@ -766,12 +778,12 @@
         uuid,
         phone: 'Unknown',
         normalizedPhone: 'Unknown',
-        amount: statusPart === 'OK' ? valuePart : '0',
+        amount: amountValue,
         reference: 'Orphan RES1',
         payMessage: 'N/A',
         resMessage: trimmed,
-        status: statusPart === 'OK' ? 'Success' : 'Failed',
-        failureReason: statusPart === 'FAIL' ? valuePart : null,
+        status: finalStatus,
+        failureReason,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       });
@@ -787,11 +799,6 @@
       }
     }
 
-    // Determine final status
-    const isSuccess = statusPart === 'OK';
-    const finalStatus = isSuccess ? 'Success' : 'Failed';
-    const failureReason = isSuccess ? null : valuePart;
-
     // Update the record in history
     const updatedRecord = {
       uuid,
@@ -800,6 +807,9 @@
       failureReason,
       updatedAt: new Date().toISOString()
     };
+    if (amountValue !== '0') {
+      updatedRecord.amount = amountValue;
+    }
     upsertTransactionRecord(updatedRecord);
 
     // Special Check: If this matches the DEMO PRE-SEEDED item, trigger visual highlight!
@@ -814,9 +824,11 @@
       appState.inFlight.failureReason = failureReason;
 
       if (isSuccess) {
-        transitionTo(STATES.SUCCESS, { tx: appState.inFlight, amount: valuePart });
-      } else {
-        transitionTo(STATES.FAILURE, { tx: appState.inFlight, reason: valuePart });
+        transitionTo(STATES.SUCCESS, { tx: appState.inFlight, amount: amountValue });
+      } else if (isPending) {
+        transitionTo(STATES.TIMEOUT);
+      } else if (isFailure) {
+        transitionTo(STATES.FAILURE, { tx: appState.inFlight, reason: failureReason });
       }
     } else {
       // RES1 arrived while app was on another screen or backgrounded
