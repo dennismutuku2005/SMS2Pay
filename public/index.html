@@ -95,6 +95,19 @@
             </div>
 
             <div class="form-group">
+              <label class="form-label" for="manual-payload">Manual Sandbox PAY1 Payload</label>
+              <div class="sms-preview-box" id="manual-payload" aria-live="polite">
+                Enter a valid phone number and amount to generate a payload.
+              </div>
+              <button id="btn-copy-payload" type="button" class="btn-secondary" style="margin-top: 8px;">
+                Copy Payload
+              </button>
+              <div class="input-hint">
+                Send the generated one-line message manually to shortcode 66578.
+              </div>
+            </div>
+
+            <div class="form-group">
               <label class="form-label" for="input-reference">Reference (Optional)</label>
               <div class="input-container">
                 <input id="input-reference" type="text" class="form-input" maxlength="20" placeholder="e.g. Order 42" autocomplete="off">

@@ -92,6 +92,8 @@
     phoneError: document.getElementById('phone-error'),
     amountError: document.getElementById('amount-error'),
     btnSendPayment: document.getElementById('btn-send-payment'),
+    manualPayload: document.getElementById('manual-payload'),
+    btnCopyPayload: document.getElementById('btn-copy-payload'),
     quickAmtButtons: document.querySelectorAll('.quick-amt-btn'),
 
     // Screen 2: Confirm
@@ -469,6 +471,19 @@
     elements.phoneError.textContent = '';
     elements.amountError.textContent = '';
     elements.btnSendPayment.disabled = true;
+    elements.manualPayload.textContent = 'Enter a valid phone number and amount to generate a payload.';
+  }
+
+  function updateManualPayload() {
+    const phone = normalisePhone(elements.inputPhone.value.trim());
+    const amount = elements.inputAmount.value.trim();
+    if (!validatePhone(phone) || !validateAmount(amount)) {
+      elements.manualPayload.textContent = 'Enter a valid phone number and amount to generate a payload.';
+      return;
+    }
+
+    const uuid = generate24CharHexUUID();
+    elements.manualPayload.textContent = `PAY1-${phone}-${parseInt(amount, 10)}-${uuid}`;
   }
 
   function validateNewPaymentInputs() {
@@ -510,6 +525,7 @@
     }
 
     elements.btnSendPayment.disabled = !(phoneValid && amountValid);
+    updateManualPayload();
   }
 
   function handleStartPayment() {
@@ -1066,6 +1082,19 @@
     });
 
     elements.btnSendPayment.addEventListener('click', handleStartPayment);
+    elements.btnCopyPayload.addEventListener('click', async () => {
+      const payload = elements.manualPayload.textContent;
+      if (!payload.startsWith('PAY1-')) return;
+      try {
+        await navigator.clipboard.writeText(payload);
+        elements.btnCopyPayload.textContent = 'Copied';
+        setTimeout(() => {
+          elements.btnCopyPayload.textContent = 'Copy Payload';
+        }, 1500);
+      } catch (error) {
+        logTraffic(`Could not copy payload: ${error.message}`, 'err');
+      }
+    });
 
     // Screen 2 events
     elements.btnConfirmCancel.addEventListener('click', () => {
