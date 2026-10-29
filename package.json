@@ -1,0 +1,25 @@
+{
+  "name": "sms2pay",
+  "version": "1.0.0",
+  "description": "��#\u0000 \u0000S\u0000M\u0000S\u00002\u0000P\u0000a\u0000y\u0000\r\u0000 \u0000",
+  "main": "src/receive.js",
+  "scripts": {
+    "start": "node --env-file=.env src/receive.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dennismutuku2005/SMS2Pay.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/dennismutuku2005/SMS2Pay/issues"
+  },
+  "homepage": "https://github.com/dennismutuku2005/SMS2Pay#readme",
+  "dependencies": {
+    "express": "^5.3.0"
+  }
+}

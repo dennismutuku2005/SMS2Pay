@@ -1,0 +1,5 @@
+.env
+node_modules/
+src/received.json
+src/received.json.tmp.*
+src/received.json.corrupt.*
