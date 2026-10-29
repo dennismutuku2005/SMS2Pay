@@ -25,6 +25,7 @@ const publicDir = path.join(__dirname, '..', 'public');
 const mpesaBaseUrl = 'https://tuk.onenetwork-system.com/mpesa/v1';
 const mpesaPartyB = '3018584';
 const mpesaPollAttempts = 60;
+const mpesaRequestTimeoutMs = 15000;
 
 function log(message, details) {
     const suffix = details === undefined ? '' : ` ${JSON.stringify(details)}`;
@@ -166,16 +167,24 @@ async function sendSms(replyText, requestData) {
 
 async function postMpesa(endpoint, body) {
     let response;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), mpesaRequestTimeoutMs);
     try {
         log('M-Pesa request started', { endpoint, checkoutRequestId: body.CheckoutRequestID || null });
         response = await fetch(`${mpesaBaseUrl}/${endpoint}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
+            signal: controller.signal,
         });
     } catch (error) {
-        log('M-Pesa request failed', { endpoint, error: error.message });
-        return { status: 'error', message: error.message };
+        const message = error.name === 'AbortError'
+            ? `M-Pesa request timed out after ${mpesaRequestTimeoutMs / 1000} seconds`
+            : error.message;
+        log('M-Pesa request failed', { endpoint, error: message });
+        return { status: 'error', message };
+    } finally {
+        clearTimeout(timeout);
     }
 
     const responseText = await response.text();
