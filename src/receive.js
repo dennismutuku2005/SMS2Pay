@@ -14,7 +14,7 @@ const port = Number.parseInt(process.env.PORT || '4000', 10);
 const storageFile = path.join(__dirname, 'received.json');
 const mpesaBaseUrl = 'https://tuk.onenetwork-system.com/mpesa/v1';
 const mpesaPartyB = '3018584';
-const mpesaPollAttempts = 30;
+const mpesaPollAttempts = 60;
 
 function log(message, details) {
     const suffix = details === undefined ? '' : ` ${JSON.stringify(details)}`;
@@ -99,7 +99,6 @@ async function sendSms(replyText, requestData) {
             hasApiKey: Boolean(apiKey),
             hasRecipient: Boolean(systemNumber),
         });
-        log('M-Pesa payment still pending', { checkoutRequestId, pollAttempts: mpesaPollAttempts });
         return {
             ok: false,
             error: 'AT_API_KEY or SYSTEM_NUM not configured',
@@ -211,8 +210,13 @@ async function initiateMpesaPayment(parsed) {
     }
 
     const checkoutRequestId = result.data.CheckoutRequestID;
-    log('M-Pesa payment accepted', { checkoutRequestId, pollAttempts: mpesaPollAttempts });
-    for (let attempt = 1; attempt <= mpesaPollAttempts; attempt += 1) {
+    log('M-Pesa payment accepted; polling every second for up to one minute', {
+        checkoutRequestId,
+        pollAttempts: mpesaPollAttempts,
+    });
+    let attempt = 0;
+    while (attempt < mpesaPollAttempts) {
+        attempt += 1;
         const statusResult = await postMpesa('statuscheck.php', {
             CheckoutRequestID: checkoutRequestId,
         });
@@ -235,15 +239,15 @@ async function initiateMpesaPayment(parsed) {
                 mpesa: statusResult,
             };
         }
-        if (attempt < mpesaPollAttempts) {
-            await wait(1000);
-        }
+        log('M-Pesa payment still pending; checking again in one second', { checkoutRequestId });
+        await wait(1000);
     }
 
+    log('M-Pesa payment still pending after one minute', { checkoutRequestId });
     return {
         status: 'PD',
         checkoutRequestId,
-        reason: 'mpesa_payment_pending',
+        reason: 'mpesa_payment_pending_timeout',
     };
 }
 
@@ -335,7 +339,11 @@ app.use((error, req, res, next) => {
 
 if (require.main === module) {
     app.listen(port, () => {
-        log('SMS2Pay server running', { port, mpesaPartyB, mpesaPollAttempts });
+        log('SMS2Pay server running', {
+            port,
+            mpesaPartyB,
+            mpesaPolling: 'every second for up to one minute',
+        });
     });
 }
 

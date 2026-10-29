@@ -24,7 +24,8 @@ Device                    Africa's Talking              SMS2Pay backend
 The current backend acknowledges valid `PAY1` messages and returns an `OK`
 reply after requesting an M-Pesa STK Push. For Till payments, the configured
 customer phone receives the M-Pesa prompt. The backend checks the transaction
-status every second, up to `MPESA_POLL_ATTEMPTS` times.
+status every second for up to one minute. If the provider remains pending after
+60 checks, the backend returns a `PD` (pending timeout) result.
 
 ## Current features
 
