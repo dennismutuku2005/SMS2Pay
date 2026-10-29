@@ -4,7 +4,7 @@
   "description": "��#\u0000 \u0000S\u0000M\u0000S\u00002\u0000P\u0000a\u0000y\u0000\r\u0000 \u0000",
   "main": "src/receive.js",
   "scripts": {
-    "start": "node --env-file=.env src/receive.js",
+    "start": "node --env-file-if-exists=.env src/receive.js",
     "test": "node --check src/receive.js"
   },
   "repository": {

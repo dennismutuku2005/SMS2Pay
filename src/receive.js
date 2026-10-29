@@ -9,9 +9,19 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 
+const envPath = path.join(__dirname, '..', '.env');
+if (fs.existsSync(envPath) && typeof process.loadEnvFile === 'function') {
+    try {
+        process.loadEnvFile(envPath);
+    } catch {
+        // Continue if already loaded or not readable
+    }
+}
+
 const app = express();
 const port = Number.parseInt(process.env.PORT || '4000', 10);
 const storageFile = path.join(__dirname, 'received.json');
+const publicDir = path.join(__dirname, '..', 'public');
 const mpesaBaseUrl = 'https://tuk.onenetwork-system.com/mpesa/v1';
 const mpesaPartyB = '3018584';
 const mpesaPollAttempts = 60;
@@ -37,6 +47,13 @@ app.use((req, res, next) => {
     });
     next();
 });
+
+if (fs.existsSync(publicDir)) {
+    app.use(express.static(publicDir));
+    app.get(['/', '/pos'], (req, res) => {
+        res.sendFile(path.join(publicDir, 'index.html'));
+    });
+}
 
 function parsePayMessage(message) {
     const parts = message.split('-');
@@ -250,6 +267,35 @@ async function initiateMpesaPayment(parsed) {
         reason: 'mpesa_payment_pending_timeout',
     };
 }
+
+// POS Integration Endpoints for Backend Connectivity
+app.get('/api/pos/status/:uuid', (req, res) => {
+    const uuid = String(req.params.uuid || '').toUpperCase();
+    const records = readExistingRecords();
+    const match = records.slice().reverse().find((r) => r?.parsed?.uuid === uuid || r?.reply?.uuid === uuid);
+    if (!match) {
+        return res.status(404).json({ ok: false, error: 'Transaction not found' });
+    }
+    return res.json({
+        ok: true,
+        uuid,
+        status: match.reply?.status || 'Pending',
+        replyText: match.reply?.text || null,
+        record: match,
+    });
+});
+
+app.get('/api/pos/inbox', (req, res) => {
+    const records = readExistingRecords();
+    return res.json({ ok: true, records: records.slice(-20) });
+});
+
+app.post('/api/pos/send', (req, res) => {
+    const { payMessage, phone, amount, uuid } = req.body || {};
+    const text = payMessage || `PAY1-${phone}-${amount}-${uuid}`;
+    log('POS client dispatched PAY1', { text });
+    return res.json({ ok: true, message: 'Dispatched', text });
+});
 
 app.post(['/', '/webhook'], async (req, res, next) => {
     try {

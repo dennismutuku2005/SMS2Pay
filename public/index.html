@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>SMS2Pay POS Terminal</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <div class="pos-workspace">
+    <!-- POS DEVICE CHASSIS -->
+    <div class="pos-device-frame">
+      <div class="pos-camera-dot"></div>
+      <div class="pos-top-speaker"></div>
+
+      <!-- DEVICE VIEWPORT -->
+      <div class="pos-screen-viewport">
+        <!-- Hardware Status Bar -->
+        <div class="device-status-bar">
+          <div class="status-left">
+            <span id="status-time">12:00 PM</span>
+            <span id="status-shortcode" class="shortcode-pill">SMS: 66578</span>
+          </div>
+          <div class="status-right">
+            <div id="signal-indicator" class="signal-indicator active" title="Cellular Signal">
+              <span class="signal-bar"></span>
+              <span class="signal-bar"></span>
+              <span class="signal-bar"></span>
+              <span class="signal-bar"></span>
+            </div>
+            <span>4G</span>
+            <span>94%</span>
+          </div>
+        </div>
+
+        <!-- App Header -->
+        <header class="app-header">
+          <div class="app-brand">
+            <span class="brand-badge">S2P</span>
+            <div>
+              <div class="brand-title">SMS2Pay</div>
+              <span class="brand-tag">M-PESA OFFLINE POS</span>
+            </div>
+          </div>
+          <div class="header-actions">
+            <button id="btn-open-history" class="icon-btn" title="Transaction History">
+              📋
+              <span id="pending-badge-count" class="badge-counter" style="display: none;">0</span>
+            </button>
+            <button id="btn-open-settings" class="icon-btn" title="Settings">⚙️</button>
+          </div>
+        </header>
+
+        <!-- Active Pending Recovery Banner -->
+        <div id="pending-banner" class="pending-recovery-banner hidden">
+          <span id="pending-banner-text">Active transaction in flight</span>
+          <span id="pending-banner-link" class="banner-link">Resume</span>
+        </div>
+
+        <!-- SCREEN CONTAINER -->
+        <div class="screen-container">
+
+          <!-- SCREEN 1: NEW PAYMENT (PRIMARY) -->
+          <section id="screen-new-payment" class="screen active">
+            <div class="form-group">
+              <label class="form-label" for="input-phone">Customer Phone (Payer)</label>
+              <div class="input-container">
+                <input id="input-phone" type="tel" class="form-input" placeholder="0712 345 678 or 254..." autocomplete="off">
+              </div>
+              <div class="input-hint">
+                <span>Starts with 0 or 254 (10–12 digits)</span>
+                <span id="phone-error" class="input-hint error"></span>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="input-amount">Amount (KES)</label>
+              <div class="input-container">
+                <span class="input-prefix">KES</span>
+                <input id="input-amount" type="tel" inputmode="numeric" class="form-input has-prefix" placeholder="500" autocomplete="off">
+              </div>
+              <div class="input-hint">
+                <span>Whole shillings only (no decimals)</span>
+                <span id="amount-error" class="input-hint error"></span>
+              </div>
+
+              <!-- Quick amount chips -->
+              <div class="quick-amounts">
+                <button type="button" class="quick-amt-btn" data-amt="100">+100</button>
+                <button type="button" class="quick-amt-btn" data-amt="250">+250</button>
+                <button type="button" class="quick-amt-btn" data-amt="500">+500</button>
+                <button type="button" class="quick-amt-btn" data-amt="1000">+1,000</button>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="input-reference">Reference (Optional)</label>
+              <div class="input-container">
+                <input id="input-reference" type="text" class="form-input" maxlength="20" placeholder="e.g. Order 42" autocomplete="off">
+              </div>
+              <div class="input-hint">
+                <span>Internal reference (not sent over SMS)</span>
+              </div>
+            </div>
+
+            <button id="btn-send-payment" class="btn-primary" disabled>
+              <span>Request M-Pesa Payment</span>
+              <span>→</span>
+            </button>
+          </section>
+
+          <!-- SCREEN 2: CONFIRM / REVIEW -->
+          <section id="screen-confirm" class="screen">
+            <div class="review-card">
+              <div class="review-header">
+                <div class="review-icon">📱</div>
+                <div class="review-title">Send payment request?</div>
+                <div class="review-subtitle">Verify details before transmitting SMS</div>
+              </div>
+
+              <div class="review-amount-display">
+                <div class="review-amount-label">Payment Amount</div>
+                <div id="confirm-amount" class="review-amount-value">KES 500</div>
+              </div>
+
+              <div class="review-row">
+                <span class="review-row-label">Customer Phone</span>
+                <span id="confirm-phone" class="review-row-value">0712 345 678</span>
+              </div>
+
+              <div id="confirm-ref-row" class="review-row">
+                <span class="review-row-label">Reference</span>
+                <span id="confirm-reference" class="review-row-value">Order 42</span>
+              </div>
+
+              <div class="review-row">
+                <span class="review-row-label">SMS Shortcode</span>
+                <span id="confirm-shortcode" class="review-row-value">66578</span>
+              </div>
+
+              <div style="margin-top: 14px;">
+                <span class="review-row-label" style="font-size: 11px;">PAY1 SMS Instruction:</span>
+                <div id="confirm-sms-preview" class="sms-preview-box">PAY1-...</div>
+              </div>
+            </div>
+
+            <button id="btn-confirm-send" class="btn-primary">
+              <span>Send SMS Request</span>
+              <span>📨</span>
+            </button>
+            <button id="btn-confirm-cancel" class="btn-secondary">Cancel</button>
+          </section>
+
+          <!-- SCREEN 3: SENDING / WAITING (4 STATES) -->
+          <section id="screen-waiting" class="screen">
+            <div class="waiting-screen-body">
+
+              <!-- STATE A: SENDING -->
+              <div id="state-sending" style="display: flex; flex-direction: column; align-items: center;">
+                <div class="spinner-outer">
+                  <div class="spinner-circle"></div>
+                </div>
+                <div class="waiting-title">Sending request…</div>
+                <div class="waiting-subtext">Transmitting PAY1 message via device SMS to shortcode…</div>
+              </div>
+
+              <!-- STATE B: WAITING FOR CONFIRMATION (60s TIMEOUT) -->
+              <div id="state-waiting" style="display: none; flex-direction: column; align-items: center; width: 100%;">
+                <div class="pulse-radar">
+                  <span class="pulse-radar-icon">📲</span>
+                </div>
+                <div class="waiting-title">Waiting for M-Pesa confirmation…</div>
+                <div class="waiting-subtext">Customer should enter their M-Pesa PIN now.</div>
+
+                <!-- 60s Countdown Box -->
+                <div class="countdown-box">
+                  <span style="font-size: 14px;">⏱️</span>
+                  <span id="waiting-countdown-text" class="countdown-timer">Waiting… 1:00</span>
+                </div>
+
+                <div class="countdown-bar-wrapper">
+                  <div id="waiting-countdown-bar" class="countdown-bar"></div>
+                </div>
+
+                <div class="waiting-card">
+                  <div class="review-row">
+                    <span class="review-row-label">Customer</span>
+                    <span id="waiting-phone-display" class="review-row-value">0712 345 678</span>
+                  </div>
+                  <div class="review-row">
+                    <span class="review-row-label">Amount</span>
+                    <span id="waiting-amount-display" class="review-row-value">KES 500</span>
+                  </div>
+                  <div class="review-row">
+                    <span class="review-row-label">Transaction UUID</span>
+                    <span id="waiting-uuid-display" class="review-row-value" style="font-family: monospace;">550E8400…</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- STATE C: SEND FAILED -->
+              <div id="state-send-failed" style="display: none; flex-direction: column; align-items: center; width: 100%;">
+                <div class="state-icon-large state-icon-failed">⚠️</div>
+                <div class="waiting-title">Could not send SMS</div>
+                <div class="waiting-subtext">Check cellular signal or SIM status and try again.</div>
+
+                <button id="btn-retry-send" class="btn-primary" style="margin-top: 18px;">
+                  <span>Retry Sending SMS</span>
+                  <span>🔄</span>
+                </button>
+                <button id="btn-cancel-failed" class="btn-secondary">Back to Edit</button>
+              </div>
+
+              <!-- STATE D: TIMEOUT -->
+              <div id="state-timeout" style="display: none; flex-direction: column; align-items: center; width: 100%;">
+                <div class="state-icon-large state-icon-timeout">⏳</div>
+                <div class="waiting-title">No confirmation received</div>
+                <div class="waiting-subtext">The payment may still be processing. The transaction has been kept as "Pending" in your history.</div>
+
+                <button id="btn-timeout-status" class="btn-primary" style="margin-top: 18px;">Check Status in History</button>
+                <button id="btn-timeout-new" class="btn-secondary">New Payment</button>
+              </div>
+
+            </div>
+          </section>
+
+          <!-- SCREEN 4: RESULT -->
+          <section id="screen-result" class="screen">
+            <div class="result-screen-body">
+              <div id="result-icon" class="result-icon success">✓</div>
+              <div id="result-title" class="result-title">Payment confirmed</div>
+              <div id="result-subtitle" class="result-subtitle">M-Pesa payment processed successfully.</div>
+
+              <div class="result-receipt-card">
+                <div id="result-amount" class="receipt-amount-display">KES 500</div>
+
+                <div class="review-row">
+                  <span class="review-row-label">Customer</span>
+                  <span id="result-phone" class="review-row-value">0712 345 678</span>
+                </div>
+                <div class="review-row">
+                  <span class="review-row-label">Receipt / UUID</span>
+                  <span id="result-receipt" class="review-row-value" style="font-family: monospace;">550E8400…</span>
+                </div>
+                <div class="review-row">
+                  <span class="review-row-label">Timestamp</span>
+                  <span id="result-time" class="review-row-value">Today at 12:15 PM</span>
+                </div>
+                <div style="margin-top: 10px;">
+                  <span class="review-row-label" style="font-size: 11px;">Inbound RES1 SMS:</span>
+                  <div id="result-raw-sms" class="sms-preview-box" style="margin-top: 4px; font-size: 10px;">RES1-...</div>
+                </div>
+              </div>
+
+              <button id="btn-result-new" class="btn-primary">New Payment</button>
+              <button id="btn-result-try-again" class="btn-secondary" style="display: none;">Try Again</button>
+              <button id="btn-result-history" class="btn-secondary">View History</button>
+            </div>
+          </section>
+
+          <!-- SCREEN 5: HISTORY -->
+          <section id="screen-history" class="screen">
+            <div class="history-header-row">
+              <div class="history-title">Transaction History</div>
+              <button id="btn-back-history" class="btn-secondary" style="width: auto; padding: 6px 12px; margin: 0; font-size: 12px;">← Back</button>
+            </div>
+
+            <!-- Filter Pills -->
+            <div class="history-filters">
+              <span class="filter-pill active" data-filter="all">All</span>
+              <span class="filter-pill" data-filter="pending">Pending</span>
+              <span class="filter-pill" data-filter="success">Success</span>
+              <span class="filter-pill" data-filter="failed">Failed</span>
+            </div>
+
+            <!-- Transaction List -->
+            <div id="history-list" class="history-list"></div>
+
+            <div id="history-empty" class="history-empty" style="display: none;">
+              No transactions found.
+            </div>
+          </section>
+
+        </div>
+        <!-- END SCREEN CONTAINER -->
+
+        <!-- MODAL: TRANSACTION DETAIL -->
+        <div id="modal-detail" class="modal-overlay">
+          <div class="modal-sheet">
+            <div class="modal-header">
+              <div class="modal-title">Transaction Details</div>
+              <button id="modal-detail-close" class="modal-close-btn">✕</button>
+            </div>
+            <div class="review-row">
+              <span class="review-row-label">Status</span>
+              <span id="detail-status-badge" class="status-badge badge-pending">Pending</span>
+            </div>
+            <div class="review-row">
+              <span class="review-row-label">Amount</span>
+              <span id="detail-amount" class="review-row-value">KES 0</span>
+            </div>
+            <div class="review-row">
+              <span class="review-row-label">Customer</span>
+              <span id="detail-phone" class="review-row-value">0712 345 678</span>
+            </div>
+            <div class="review-row">
+              <span class="review-row-label">Reference</span>
+              <span id="detail-reference" class="review-row-value">None</span>
+            </div>
+            <div class="review-row">
+              <span class="review-row-label">Date & Time</span>
+              <span id="detail-time" class="review-row-value">-</span>
+            </div>
+            <div class="review-row" style="flex-direction: column; gap: 4px; border-bottom: none;">
+              <span class="review-row-label">UUID (24-char hex):</span>
+              <span id="detail-uuid" style="font-family: monospace; font-size: 12px; font-weight: 700; word-break: break-all;">-</span>
+            </div>
+            <div style="margin-top: 10px;">
+              <span class="review-row-label" style="font-size: 11px;">Sent PAY1 Message:</span>
+              <div id="detail-pay1" class="sms-preview-box">PAY1-...</div>
+            </div>
+            <div style="margin-top: 8px;">
+              <span class="review-row-label" style="font-size: 11px;">Received RES1 Message:</span>
+              <div id="detail-res1" class="sms-preview-box">RES1-...</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- MODAL: SETTINGS -->
+        <div id="modal-settings" class="modal-overlay">
+          <div class="modal-sheet">
+            <div class="modal-header">
+              <div class="modal-title">POS Settings</div>
+              <button id="modal-settings-close" class="modal-close-btn">✕</button>
+            </div>
+            <div id="settings-alert" class="input-hint error" style="margin-bottom: 12px; display: none;"></div>
+            <div class="form-group">
+              <label class="form-label" for="input-shortcode">SMS Shortcode</label>
+              <div class="input-container">
+                <input id="input-shortcode" type="text" class="form-input" value="66578">
+              </div>
+              <div class="input-hint">Default Africa's Talking sandbox shortcode: 66578</div>
+            </div>
+            <button id="btn-save-settings" class="btn-primary" style="margin-bottom: 10px;">Save Settings</button>
+            <button id="btn-reset-demo" class="btn-secondary" style="color: var(--danger);">Reset Demo Data</button>
+          </div>
+        </div>
+
+      </div>
+      <!-- END POS SCREEN VIEWPORT -->
+
+      <div class="pos-bottom-brand">SMS2Pay Handheld POS Terminal</div>
+    </div>
+    <!-- END POS DEVICE CHASSIS -->
+
+  </div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
