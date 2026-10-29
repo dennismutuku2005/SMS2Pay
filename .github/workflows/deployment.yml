@@ -1,0 +1,93 @@
+name: deployment
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Copy files via SCP
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          password: ${{ secrets.PASSWORD }}
+          port: ${{ secrets.PORT }}
+          source: "."
+          target: "/root/nodeapplications/${{ secrets.APP_NAME }}"
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          password: ${{ secrets.PASSWORD }}
+          port: ${{ secrets.PORT }}
+          script: |
+            set -e
+
+            APP_NAME="${{ secrets.APP_NAME }}"
+            APP_DIR="/root/nodeapplications/$APP_NAME"
+
+            echo "Deploying $APP_NAME to $APP_DIR"
+
+            if ! command -v node >/dev/null 2>&1 || [ "$(node -p "process.versions.node.split('.')[0]")" -lt 20 ]; then
+              echo "Node.js 20+ required. Installing Node.js 20..."
+              curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+              sudo apt-get install -y nodejs
+            else
+              echo "Node.js version is compatible: $(node --version)"
+            fi
+
+            if ! command -v npm >/dev/null 2>&1; then
+              echo "npm not found. Installing npm..."
+              sudo apt-get install -y npm
+            else
+              echo "npm is already installed: $(npm --version)"
+            fi
+
+            cd "$APP_DIR"
+            if [ ! -f package.json ]; then
+              echo "No package.json found in $APP_DIR"
+              exit 1
+            fi
+
+            if [ ! -f .env ]; then
+              echo "No .env file found in $APP_DIR"
+              exit 1
+            fi
+
+            npm ci --omit=dev
+
+            if ! command -v pm2 >/dev/null 2>&1; then
+              echo "PM2 not found. Installing PM2 globally..."
+              sudo npm install --global pm2
+            else
+              echo "PM2 is already installed: $(pm2 --version)"
+            fi
+
+            if [ ! -f src/receive.js ]; then
+              echo "Main file src/receive.js was not found"
+              exit 1
+            fi
+
+            if pm2 describe "$APP_NAME" >/dev/null 2>&1; then
+              echo "Restarting $APP_NAME in PM2..."
+              pm2 restart "$APP_NAME" --update-env
+            else
+              echo "Starting $APP_NAME in PM2..."
+              pm2 start src/receive.js \
+                --name "$APP_NAME" \
+                --node-args="--env-file=.env"
+            fi
+
+            pm2 save
+            pm2 startup systemd -u "$USER" --hp "$HOME" || true
+
+            echo "Deployment complete for $APP_NAME"
