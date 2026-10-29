@@ -38,11 +38,9 @@
   const appState = {
     currentState: STATES.IDLE,
     shortcode: DEFAULT_SHORTCODE,
-    hasSignal: true,
-    autoRespond: false,
-    autoRespondDelay: 4, // seconds
     timeoutRemaining: TIMEOUT_SECONDS,
     timerInterval: null,
+    statusPollInterval: null,
     historyFilter: 'all',
 
     // In-flight transaction
@@ -156,19 +154,7 @@
     inputShortcode: document.getElementById('input-shortcode'),
     btnSaveSettings: document.getElementById('btn-save-settings'),
     btnResetDemoData: document.getElementById('btn-reset-demo'),
-    settingsAlert: document.getElementById('settings-alert'),
-
-    // Simulator Panel
-    simSignalToggle: document.getElementById('sim-signal-toggle'),
-    simAutoToggle: document.getElementById('sim-auto-toggle'),
-    btnSimOk: document.getElementById('btn-sim-ok'),
-    btnSimCancel: document.getElementById('btn-sim-cancel'),
-    btnSimTimeout: document.getElementById('btn-sim-timeout'),
-    btnSimInsufficient: document.getElementById('btn-sim-insufficient'),
-    btnSimFlipPending: document.getElementById('btn-sim-flip-pending'),
-    simCustomSms: document.getElementById('sim-custom-sms'),
-    btnSimSendCustom: document.getElementById('btn-sim-send-custom'),
-    trafficLog: document.getElementById('traffic-log')
+    settingsAlert: document.getElementById('settings-alert')
   };
 
   // ==========================================
@@ -377,25 +363,16 @@
   }
 
   // ==========================================
-  // TRAFFIC LOGGING (SIMULATOR)
+  // DIAGNOSTIC LOGGING
   // ==========================================
 
   function logTraffic(message, type = 'tx') {
-    const now = new Date();
-    const timeStr = now.toLocaleTimeString([], { hour12: false });
-    const entry = document.createElement('div');
-    entry.className = `traffic-entry ${type}`;
-    entry.innerHTML = `<span class="traffic-time">[${timeStr}]</span> ${escapeHtml(message)}`;
-    elements.trafficLog.appendChild(entry);
-    elements.trafficLog.scrollTop = elements.trafficLog.scrollHeight;
-  }
-
-  function escapeHtml(text) {
-    if (!text) return '';
-    return text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
+    const prefix = type === 'err' ? '[SMS2Pay:err]' : '[SMS2Pay]';
+    if (type === 'err') {
+      console.warn(prefix, message);
+    } else {
+      console.log(prefix, message);
+    }
   }
 
   // ==========================================
@@ -439,6 +416,9 @@
         elements.screenWaiting.classList.add('active');
         renderWaitingSubstate('WAITING');
         startCountdownTimer();
+        if (appState.inFlight?.uuid) {
+          startStatusPolling(appState.inFlight.uuid);
+        }
         break;
 
       case STATES.SEND_FAILED:
@@ -613,42 +593,90 @@
   }
 
   /**
-   * Simulates calling the device SMS API to send PAY1 to shortcode
+   * Dispatch PAY1 via backend POS send endpoint, then poll for RES1 status.
    */
-  function executeSmsSend() {
+  async function executeSmsSend() {
     if (!appState.inFlight) return;
     const tx = appState.inFlight;
 
-    logTraffic(`[Device SMS API] Sending to ${appState.shortcode}: "${tx.payMessage}"`, 'tx');
+    logTraffic(`Dispatching PAY1 to ${appState.shortcode}: "${tx.payMessage}"`, 'tx');
 
-    // Simulate SMS sending delay
-    setTimeout(() => {
-      // Check cellular signal
-      if (!appState.hasSignal) {
-        logTraffic(`[Device SMS API] SMS send failed: No cellular signal or SIM error`, 'err');
-        tx.status = 'Send Failed';
-        upsertTransactionRecord(tx);
-        transitionTo(STATES.SEND_FAILED);
+    try {
+      const response = await fetch('/api/pos/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          payMessage: tx.payMessage,
+          phone: tx.normalizedPhone,
+          amount: tx.amount,
+          uuid: tx.uuid,
+          shortcode: appState.shortcode
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`POS send failed with HTTP ${response.status}`);
+      }
+
+      const payload = await response.json();
+      if (!payload?.ok) {
+        throw new Error(payload?.error || 'POS send rejected');
+      }
+
+      logTraffic(`PAY1 dispatched successfully. Shortcode: ${appState.shortcode}`, 'tx');
+      tx.status = 'Pending';
+      upsertTransactionRecord(tx);
+      transitionTo(STATES.WAITING);
+    } catch (error) {
+      logTraffic(`PAY1 dispatch failed: ${error.message}`, 'err');
+      tx.status = 'Send Failed';
+      tx.failureReason = error.message;
+      upsertTransactionRecord(tx);
+      transitionTo(STATES.SEND_FAILED);
+    }
+  }
+
+  function startStatusPolling(uuid) {
+    stopStatusPolling();
+    pollTransactionStatus(uuid);
+    appState.statusPollInterval = setInterval(() => {
+      pollTransactionStatus(uuid);
+    }, 2000);
+  }
+
+  function stopStatusPolling() {
+    if (appState.statusPollInterval) {
+      clearInterval(appState.statusPollInterval);
+      appState.statusPollInterval = null;
+    }
+  }
+
+  async function pollTransactionStatus(uuid) {
+    if (!uuid) return;
+    try {
+      const response = await fetch(`/api/pos/status/${encodeURIComponent(uuid)}`);
+      if (response.status === 404) return;
+      if (!response.ok) return;
+
+      const payload = await response.json();
+      if (!payload?.ok) return;
+
+      if (payload.replyText) {
+        receiveSms(payload.replyText);
         return;
       }
 
-      // SMS Sent successfully!
-      logTraffic(`[Device SMS API] SMS sent successfully. Shortcode: ${appState.shortcode}`, 'tx');
-      tx.status = 'Pending';
-      upsertTransactionRecord(tx);
-
-      // Transition to WAITING state (State B)
-      transitionTo(STATES.WAITING);
-
-      // If Auto-responder is enabled in simulator, schedule auto OK
-      if (appState.autoRespond) {
-        setTimeout(() => {
-          if (appState.currentState === STATES.WAITING && appState.inFlight?.uuid === tx.uuid) {
-            receiveSms(`RES1-${tx.uuid}-OK-${tx.amount}`);
-          }
-        }, appState.autoRespondDelay * 1000);
+      const status = String(payload.status || '').toUpperCase();
+      if (status === 'OK' || status === 'SUCCESS') {
+        const amount = appState.inFlight?.amount || payload.record?.parsed?.amount || '0';
+        receiveSms(`RES1-${uuid}-OK-${amount}`);
+      } else if (status === 'FL' || status === 'FAIL' || status === 'FAILED') {
+        const reason = payload.record?.reply?.reason || 'FAILED';
+        receiveSms(`RES1-${uuid}-FAIL-${reason}`);
       }
-    }, 1200);
+    } catch (error) {
+      logTraffic(`Status poll error for ${uuid}: ${error.message}`, 'err');
+    }
   }
 
   /**
@@ -675,6 +703,7 @@
       clearInterval(appState.timerInterval);
       appState.timerInterval = null;
     }
+    stopStatusPolling();
   }
 
   function updateCountdownUI() {
@@ -1095,70 +1124,6 @@
     elements.btnSaveSettings.addEventListener('click', saveSettingsModal);
     elements.btnResetDemoData.addEventListener('click', resetDemoData);
     elements.modalDetailClose.addEventListener('click', () => elements.modalDetail.classList.remove('active'));
-
-    // SIMULATOR CONTROLS
-    elements.simSignalToggle.addEventListener('change', (e) => {
-      appState.hasSignal = e.target.checked;
-      if (appState.hasSignal) {
-        elements.signalIndicator.className = 'signal-indicator active';
-        logTraffic('[Network] Cellular signal restored (Good signal)', 'tx');
-      } else {
-        elements.signalIndicator.className = 'signal-indicator no-signal';
-        logTraffic('[Network] Cellular signal lost (SIM error / No service)', 'err');
-      }
-    });
-
-    elements.simAutoToggle.addEventListener('change', (e) => {
-      appState.autoRespond = e.target.checked;
-      logTraffic(`[Simulator] Auto-responder ${appState.autoRespond ? 'ENABLED (4s delay)' : 'DISABLED'}`, 'tx');
-    });
-
-    // Fast Action Buttons in Simulator
-    elements.btnSimOk.addEventListener('click', () => {
-      if (!appState.inFlight) {
-        alert('Start a payment first so there is an active transaction in flight.');
-        return;
-      }
-      receiveSms(`RES1-${appState.inFlight.uuid}-OK-${appState.inFlight.amount}`);
-    });
-
-    elements.btnSimCancel.addEventListener('click', () => {
-      if (!appState.inFlight) {
-        alert('Start a payment first so there is an active transaction in flight.');
-        return;
-      }
-      receiveSms(`RES1-${appState.inFlight.uuid}-FAIL-CANCELLED`);
-    });
-
-    elements.btnSimTimeout.addEventListener('click', () => {
-      if (!appState.inFlight) {
-        alert('Start a payment first so there is an active transaction in flight.');
-        return;
-      }
-      receiveSms(`RES1-${appState.inFlight.uuid}-FAIL-TIMEOUT`);
-    });
-
-    elements.btnSimInsufficient.addEventListener('click', () => {
-      if (!appState.inFlight) {
-        alert('Start a payment first so there is an active transaction in flight.');
-        return;
-      }
-      receiveSms(`RES1-${appState.inFlight.uuid}-FAIL-INSUFFICIENT`);
-    });
-
-    // Key Demo Feature: Flip pre-seeded pending transaction
-    elements.btnSimFlipPending.addEventListener('click', () => {
-      logTraffic(`[Demo Trigger] Delivering late RES1 for pre-seeded transaction ${DEMO_PRESEEDED_UUID}...`, 'rx');
-      receiveSms(`RES1-${DEMO_PRESEEDED_UUID}-OK-${DEMO_PRESEEDED_AMOUNT}`);
-    });
-
-    // Custom raw SMS
-    elements.btnSimSendCustom.addEventListener('click', () => {
-      const text = elements.simCustomSms.value.trim();
-      if (!text) return;
-      receiveSms(text);
-      elements.simCustomSms.value = '';
-    });
   }
 
   // ==========================================
